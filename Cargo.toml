@@ -1,0 +1,12 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/notary",
+]
+
+[workspace.dependencies]
+anyhow = "1.0"
+http-transcript-context = { git = "https://github.com/thefrozenfire/web-transcript-parser.git", branch = "master" }
+tlsn = { git = "https://github.com/tlsnotary/tlsn", tag = "v0.1.0-alpha.13" }
+tokio = "1.38"
+tokio-util = "0.7"

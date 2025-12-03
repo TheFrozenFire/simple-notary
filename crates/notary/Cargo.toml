@@ -1,0 +1,18 @@
+[package]
+name = "simple-notary"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = { workspace = true }
+
+http-transcript-context = { workspace = true }
+tlsn = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+
+clap = { version = "4.0", features = ["derive"] }
+axum = { version = "0.8", features = ["ws"] }
+serde_json = { version = "1.0" }
+ws_stream_tungstenite = { version = "0.14", features = ["tokio_io"] }
+async-tungstenite = { version = "0.28", features = ["tokio_io"] }
