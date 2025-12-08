@@ -1,18 +1,14 @@
 use anyhow::Result;
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio_util::compat::TokioAsyncReadCompatExt;
+use futures::io::{AsyncRead, AsyncWrite};
 
 use tlsn::{
     config::ProtocolConfigValidator,
-    verifier::{Verifier, VerifierConfig, VerifierOutput, VerifyConfig},
+    verifier::{Verifier, VerifierConfig, VerifierOutput, VerifyConfig, state::Committed},
 };
 
-use http_transcript_context::http::HttpContext;
 use http_transcript_context::transcript::PartialTranscript;
 
-use tokio::io::AsyncWriteExt;
-
-pub async fn notarize<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(mut socket: T) -> Result<PartialTranscript> {
+pub async fn notarize<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(socket: T) -> Result<PartialTranscript> {
     let validator_config = ProtocolConfigValidator::builder()
         .build()?;
 
@@ -22,11 +18,13 @@ pub async fn notarize<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(mut so
     
     let verifier = Verifier::new(verifier_config);
 
+    let mut verifier = verifier.setup(socket).await?.run().await?;
+
     let VerifierOutput {
         server_name,
         transcript: tlsn_transcript,
         ..
-    } = verifier.verify(socket.compat(), &VerifyConfig::default()).await?;
+    } = verifier.verify( &VerifyConfig::default()).await?;
 
     let _server_name = server_name.unwrap();
     let tlsn_transcript = tlsn_transcript.unwrap();

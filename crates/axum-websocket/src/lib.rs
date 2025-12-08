@@ -552,8 +552,15 @@ pub struct WebSocket {
 impl WebSocket {
     /// NOTARY_MODIFICATION: Consume `self` and get the inner
     /// [`async_tungstenite::WebSocketStream`].
-    pub fn into_inner(self) -> WebSocketStream<TokioAdapter<TokioIo<hyper::upgrade::Upgraded>>> {
-        self.inner
+    pub fn into_inner(self) -> (WebSocketStream<TokioAdapter<TokioIo<hyper::upgrade::Upgraded>>>, Option<HeaderValue>) {
+        (self.inner, self.protocol)
+    }
+
+    pub fn from_inner(inner: WebSocketStream<TokioAdapter<TokioIo<hyper::upgrade::Upgraded>>>, protocol: Option<HeaderValue>) -> Self {
+        Self {
+            inner,
+            protocol,
+        }
     }
 
     /// Receive another message.

@@ -1,26 +1,35 @@
-pub mod protocol_upgrade;
-pub mod axum_websocket;
-
 use anyhow::Result;
 
 use axum::{
-    Json, Router,
-    extract::Request,
+    Router,
+    extract::Query,
     http::StatusCode,
-    response::{Html, IntoResponse},
-    routing::{any, get, post},
-    extract::{
-        ConnectInfo,
-    },
+    response::{IntoResponse},
+    routing::{any, get},
 };
 use std::net::SocketAddr;
+use serde::{Serialize, Deserialize};
 
 use crate::notarize::notarize;
 use http_transcript_context::http::HttpContext;
 use ws_stream_tungstenite::WsStream;
 
-use crate::server::protocol_upgrade::ProtocolUpgrade;
-use crate::server::axum_websocket::{WebSocket, WebSocketUpgrade};
+
+use axum::{
+    extract::FromRequestParts,
+    http::{header, request::Parts},
+};
+use axum_websocket::{
+    WebSocket,
+    WebSocketUpgrade,
+    header_eq,
+    Message,
+    Utf8Bytes,
+};
+use crate::error::NotaryServerError;
+use crate::yoinker::IoYoinker;
+use tokio_util::compat::TokioAsyncReadCompatExt;
+use tokio::io::AsyncWriteExt;
 
 pub async fn run() -> Result<()> {
     let router = Router::new()
@@ -41,6 +50,7 @@ pub async fn run() -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NotarizationContextFormat {
     Json,
     Binary,
@@ -57,28 +67,59 @@ async fn notarize_handler(
 ) -> impl IntoResponse {
     match protocol_upgrade {
         ProtocolUpgrade::Ws(ws) => ws.on_upgrade(move |socket| handle_notarize(socket, params.context_format)),
-        _ => todo!(),
     }
 }
 
 async fn handle_notarize(
-    mut socket: WebSocket,
+    socket: WebSocket,
     context_format: NotarizationContextFormat,
-) -> impl IntoResponse {
-    let mut stream = WsStream::new(socket.into_inner());
+) {
+    let (inner, _protocol) = socket.into_inner();
+    let (yoink, stream) = IoYoinker::new_yoinker(WsStream::new(inner).compat());
 
-    let transcript = notarize(stream).await?;
+    let transcript = notarize(stream).await.unwrap();
+
+    let mut inner = yoink.yoink();
 
     let context = HttpContext::builder(transcript).build().unwrap();
 
     match context_format {
         NotarizationContextFormat::Json => {
             let context_json = serde_json::to_value(context).unwrap();
-            (StatusCode::OK, Json(context_json)).into_response()
+            inner.write_all(context_json.to_string().as_bytes()).await.unwrap();
         }
-        NotarizationContextFormat::Binary => {
+        /*NotarizationContextFormat::Binary => {
             let context_binary = serde_json::to_value(context).unwrap();
             (StatusCode::OK, Binary(context_binary)).into_response()
+        }*/
+        _ => todo!(),
+    }
+}
+
+/// A wrapper enum to facilitate extracting TCP connection for either WebSocket
+/// or TCP clients, so that we can use a single endpoint and handler for
+/// notarization for both types of clients
+pub enum ProtocolUpgrade {
+    Ws(WebSocketUpgrade),
+}
+
+impl<S> FromRequestParts<S> for ProtocolUpgrade
+where
+    S: Send + Sync,
+{
+    type Rejection = NotaryServerError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        // Extract tcp connection for websocket client
+        if header_eq(&parts.headers, header::UPGRADE, "websocket") {
+            let extractor = WebSocketUpgrade::from_request_parts(parts, state)
+                .await
+                .map_err(|err| NotaryServerError::BadProverRequest(err.to_string()))?;
+            Ok(Self::Ws(extractor))
+        } else {
+            Err(NotaryServerError::BadProverRequest(
+                "Upgrade header is not set for client".to_string(),
+            ))
         }
     }
 }

@@ -1,4 +1,4 @@
 pub mod server;
 pub mod notarize;
-
-pub mod util;
+pub mod error;
+pub mod yoinker;

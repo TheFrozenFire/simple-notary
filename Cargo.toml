@@ -2,9 +2,12 @@
 resolver = "3"
 members = [
     "crates/notary",
+    "crates/axum-websocket",
 ]
 
 [workspace.dependencies]
+axum-websocket = { path = "crates/axum-websocket" }
+
 anyhow = "1.0"
 http-transcript-context = { git = "https://github.com/thefrozenfire/web-transcript-parser.git", branch = "master" }
 tlsn = { git = "https://github.com/tlsnotary/tlsn", tag = "v0.1.0-alpha.13" }
