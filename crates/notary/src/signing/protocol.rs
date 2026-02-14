@@ -25,6 +25,8 @@ pub enum NotaryMessage {
 pub enum ProverMessage {
     /// Request the notary to sign the full context.
     SignRequest,
+    /// Request the notary to sign a filtered subset of the context.
+    SignFiltered { data: String },
 }
 
 /// Write a length-prefixed JSON message.
