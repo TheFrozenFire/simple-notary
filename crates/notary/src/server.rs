@@ -4,7 +4,7 @@ use axum::{
     Router,
     extract::Query,
     http::StatusCode,
-    response::{IntoResponse},
+    response::IntoResponse,
     routing::{any, get},
 };
 use std::net::SocketAddr;
@@ -14,7 +14,6 @@ use crate::notarize::notarize;
 use http_transcript_context::http::HttpContext;
 use ws_stream_tungstenite::WsStream;
 
-
 use axum::{
     extract::FromRequestParts,
     http::{header, request::Parts},
@@ -23,13 +22,9 @@ use axum_websocket::{
     WebSocket,
     WebSocketUpgrade,
     header_eq,
-    Message,
-    Utf8Bytes,
 };
 use crate::error::NotaryServerError;
-use crate::yoinker::IoYoinker;
-use tokio_util::compat::TokioAsyncReadCompatExt;
-use tokio::io::AsyncWriteExt;
+use futures::io::AsyncWriteExt;
 
 pub async fn run(
     host: String,
@@ -42,7 +37,7 @@ pub async fn run(
     let listener = tokio::net::TcpListener::bind(format!("{}:{}", host, port))
         .await
         .unwrap();
-    
+
     axum::serve(
         listener,
         router.into_make_service_with_connect_info::<SocketAddr>(),
@@ -78,23 +73,18 @@ async fn handle_notarize(
     context_format: NotarizationContextFormat,
 ) {
     let (inner, _protocol) = socket.into_inner();
-    let (yoink, stream) = IoYoinker::new_yoinker(WsStream::new(inner).compat());
+    let ws_stream = WsStream::new(inner);
 
-    let transcript = notarize(stream).await.unwrap();
-
-    let mut inner = yoink.yoink();
+    // Run the verifier protocol; the session reclaims the I/O when done.
+    let (transcript, mut ws_stream) = notarize(ws_stream).await.unwrap();
 
     let context = HttpContext::builder(transcript).build().unwrap();
 
     match context_format {
         NotarizationContextFormat::Json => {
             let context_json = serde_json::to_value(context).unwrap();
-            inner.write_all(context_json.to_string().as_bytes()).await.unwrap();
+            ws_stream.write_all(context_json.to_string().as_bytes()).await.unwrap();
         }
-        /*NotarizationContextFormat::Binary => {
-            let context_binary = serde_json::to_value(context).unwrap();
-            (StatusCode::OK, Binary(context_binary)).into_response()
-        }*/
         _ => todo!(),
     }
 }

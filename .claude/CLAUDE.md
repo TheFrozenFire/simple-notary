@@ -27,19 +27,26 @@ This is a **TLSNotary** service — a third-party verifier that cryptographicall
 ### Key Flow (notary crate)
 
 1. **`server.rs`** — Sets up Axum router with `/healthcheck` and `/notarize` routes. The `/notarize` endpoint accepts WebSocket upgrades with a `context_format` query param (json or binary).
-2. **`notarize.rs`** — Core notarization handler. Wraps the WebSocket in a `WsStream` for `AsyncRead`/`AsyncWrite`, passes it through the Yoinker pattern, runs the TLSNotary `Verifier`, extracts the transcript, builds an `HttpContext`, and sends the JSON result back.
-3. **`yoinker.rs`** — `IoYoinker`/`IoBoinker` pattern using `Arc`/`Weak<Mutex<T>>`. Temporarily hands the WebSocket I/O to the TLSNotary verifier (which consumes the stream), then recovers ownership afterward to send results back over the same connection.
-4. **`error.rs`** — `NotaryServerError` enum with `IntoResponse` impl for HTTP error mapping.
+2. **`notarize.rs`** — Core notarization handler. Creates a `Session` over the `WsStream`, runs the TLSNotary `Verifier` through its state machine (commit → accept → run → verify → accept), extracts the transcript, closes the session to reclaim I/O, and returns both the transcript and the recovered stream.
+3. **`error.rs`** — `NotaryServerError` enum with `IntoResponse` impl for HTTP error mapping.
 
 ### Key Dependencies
 
-- `tlsn` (v0.1.0-alpha.13) — TLSNotary protocol implementation (verifier side)
+- `tlsn` (v0.1.0-alpha.14) — TLSNotary protocol implementation (verifier side, Session-based API)
 - `http-transcript-context` — Custom crate for parsing TLS transcripts into HTTP context (from `thefrozenfire/web-transcript-parser`)
 - `async-tungstenite` + `ws_stream_tungstenite` — WebSocket with `AsyncRead`/`AsyncWrite` support
 - `axum` 0.8 — HTTP framework
 
 ### Incomplete Areas
 
-- `proxy.rs` — Declared as a module but empty
 - Client crate — Skeleton only, no prover implementation
-- Binary output format in `notarize.rs` — Commented out
+- Binary output format in `notarize.rs` — Not yet implemented (`todo!()`)
+
+## Deep Docs
+
+See `.claude/docs/` for detailed internal documentation:
+
+- [axum-websocket-shim.md](docs/axum-websocket-shim.md) — Why the axum-websocket fork exists and what was changed
+- [session-io-reclamation.md](docs/session-io-reclamation.md) — How the Session API handles I/O ownership and reclamation
+- [notarization-flow.md](docs/notarization-flow.md) — End-to-end data flow through the notarization pipeline
+- [tlsn-releases.md](docs/tlsn-releases.md) — TLSNotary release notes (alpha.10–alpha.14) and upgrade migration guide

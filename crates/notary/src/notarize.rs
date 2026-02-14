@@ -2,33 +2,62 @@ use anyhow::Result;
 use futures::io::{AsyncRead, AsyncWrite};
 
 use tlsn::{
-    config::ProtocolConfigValidator,
-    verifier::{Verifier, VerifierConfig, VerifierOutput, VerifyConfig, state::Committed},
+    Session,
+    config::verifier::VerifierConfig,
+    verifier::VerifierOutput,
+    webpki::RootCertStore,
 };
 
 use http_transcript_context::transcript::PartialTranscript;
 
-pub async fn notarize<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(socket: T) -> Result<PartialTranscript> {
-    let validator_config = ProtocolConfigValidator::builder()
-        .build()?;
-
+/// Runs the TLSNotary verifier protocol over the given I/O stream,
+/// returning the verified partial transcript.
+///
+/// After completion, the underlying I/O is reclaimed from the session
+/// and returned alongside the transcript so the caller can continue
+/// using the connection (e.g. to send results back).
+pub async fn notarize<T>(io: T) -> Result<(PartialTranscript, T)>
+where
+    T: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+{
     let verifier_config = VerifierConfig::builder()
-        .protocol_config_validator(validator_config)
+        .root_store(RootCertStore::empty())
         .build()?;
-    
-    let verifier = Verifier::new(verifier_config);
 
-    let mut verifier = verifier.setup(socket).await?.run().await?;
+    let session = Session::new(io);
+    let (driver, mut handle) = session.split();
 
-    let VerifierOutput {
-        server_name,
-        transcript: tlsn_transcript,
-        ..
-    } = verifier.verify( &VerifyConfig::default()).await?;
+    let driver_task = tokio::spawn(driver);
+
+    let verifier = handle.new_verifier(verifier_config)?;
+
+    // Receive prover's config and accept it.
+    let verifier = verifier.commit().await?;
+    let verifier = verifier.accept().await?;
+
+    // Run MPC-TLS to completion.
+    let verifier = verifier.run().await?;
+
+    // Receive and accept the prove request.
+    let verifier = verifier.verify().await?;
+    let (
+        VerifierOutput {
+            server_name,
+            transcript: tlsn_transcript,
+            ..
+        },
+        verifier,
+    ) = verifier.accept().await?;
+
+    verifier.close().await?;
+
+    // Close session and reclaim the I/O.
+    handle.close();
+    let io = driver_task.await??;
 
     let _server_name = server_name.unwrap();
     let tlsn_transcript = tlsn_transcript.unwrap();
-    
+
     let transcript = PartialTranscript::new(
         tlsn_transcript.sent_unsafe().to_vec(),
         tlsn_transcript.received_unsafe().to_vec(),
@@ -36,5 +65,5 @@ pub async fn notarize<T: AsyncWrite + AsyncRead + Send + Unpin + 'static>(socket
         tlsn_transcript.received_authed().clone(),
     );
 
-    Ok(transcript)
+    Ok((transcript, io))
 }

@@ -16,7 +16,6 @@ anyhow = { workspace = true }
 http-transcript-context = { workspace = true }
 tlsn = { workspace = true }
 tokio = { workspace = true }
-tokio-util = { workspace = true }
 
 clap = { version = "4.0", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }

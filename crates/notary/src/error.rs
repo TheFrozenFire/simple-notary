@@ -2,9 +2,6 @@ use axum::http::StatusCode;
 use axum_core::response::{IntoResponse as AxumCoreIntoResponse, Response};
 use eyre::Report;
 use std::error::Error;
-use tlsn::config::ProtocolConfigValidatorBuilderError;
-
-use tlsn::verifier::{VerifierConfigBuilderError, VerifierError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum NotaryServerError {
@@ -22,20 +19,8 @@ pub enum NotaryServerError {
     CredentialSigningKeyError(String),
 }
 
-impl From<VerifierError> for NotaryServerError {
-    fn from(error: VerifierError) -> Self {
-        Self::Notarization(Box::new(error))
-    }
-}
-
-impl From<VerifierConfigBuilderError> for NotaryServerError {
-    fn from(error: VerifierConfigBuilderError) -> Self {
-        Self::Notarization(Box::new(error))
-    }
-}
-
-impl From<ProtocolConfigValidatorBuilderError> for NotaryServerError {
-    fn from(error: ProtocolConfigValidatorBuilderError) -> Self {
+impl From<tlsn::Error> for NotaryServerError {
+    fn from(error: tlsn::Error) -> Self {
         Self::Notarization(Box::new(error))
     }
 }

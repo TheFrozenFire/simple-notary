@@ -10,7 +10,7 @@ members = [
 axum-websocket = { path = "crates/axum-websocket" }
 
 anyhow = "1.0"
-http-transcript-context = { git = "https://github.com/thefrozenfire/web-transcript-parser.git", branch = "master" }
-tlsn = { git = "https://github.com/tlsnotary/tlsn", tag = "v0.1.0-alpha.13" }
+http-transcript-context = { path = "../http-transcript-parser/crates/context" }
+tlsn = { git = "https://github.com/tlsnotary/tlsn", tag = "v0.1.0-alpha.14" }
 tokio = "1.38"
 tokio-util = "0.7"
