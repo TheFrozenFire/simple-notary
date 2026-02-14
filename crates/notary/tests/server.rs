@@ -1,11 +1,15 @@
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
-use simple_notary::router;
+use simple_notary::{AppState, router};
 use tower::ServiceExt;
+
+fn test_state() -> AppState {
+    AppState { signer: None }
+}
 
 #[tokio::test]
 async fn healthcheck_returns_200() {
-    let app = router();
+    let app = router(test_state());
 
     let response = app
         .oneshot(
@@ -25,7 +29,7 @@ async fn healthcheck_returns_200() {
 
 #[tokio::test]
 async fn notarize_rejects_non_websocket_request() {
-    let app = router();
+    let app = router(test_state());
 
     let response = app
         .oneshot(
@@ -42,7 +46,7 @@ async fn notarize_rejects_non_websocket_request() {
 
 #[tokio::test]
 async fn unknown_route_returns_404() {
-    let app = router();
+    let app = router(test_state());
 
     let response = app
         .oneshot(

@@ -1,16 +1,18 @@
-use anyhow::Result;
+use std::net::SocketAddr;
+use std::sync::Arc;
 
+use anyhow::Result;
 use axum::{
     Router,
-    extract::Query,
+    extract::{Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{any, get},
 };
-use std::net::SocketAddr;
 use serde::{Serialize, Deserialize};
 
 use crate::notarize::notarize;
+use crate::signing::{ContextSigner, run_signing_exchange};
 use http_transcript_context::http::HttpContext;
 use tlsn::{config::verifier::VerifierConfig, webpki::RootCertStore};
 use ws_stream_tungstenite::WsStream;
@@ -27,23 +29,32 @@ use axum_websocket::{
 use crate::error::NotaryServerError;
 use futures::io::AsyncWriteExt;
 
-pub fn router() -> Router {
+#[derive(Clone)]
+pub struct AppState {
+    pub signer: Option<Arc<dyn ContextSigner>>,
+}
+
+pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/healthcheck", get(|| async move { (StatusCode::OK, "Ok").into_response() }))
         .route("/notarize", any(notarize_handler))
+        .with_state(state)
 }
 
 pub async fn run(
     host: String,
     port: u16,
+    signer: Option<Arc<dyn ContextSigner>>,
 ) -> Result<()> {
+    let state = AppState { signer };
+
     let listener = tokio::net::TcpListener::bind(format!("{}:{}", host, port))
         .await
         .unwrap();
 
     axum::serve(
         listener,
-        router().into_make_service_with_connect_info::<SocketAddr>(),
+        router(state).into_make_service_with_connect_info::<SocketAddr>(),
     )
     .await
     .unwrap();
@@ -63,17 +74,21 @@ pub struct NotarizationRequestQuery {
 }
 
 async fn notarize_handler(
+    State(state): State<AppState>,
     protocol_upgrade: ProtocolUpgrade,
     Query(params): Query<NotarizationRequestQuery>,
 ) -> impl IntoResponse {
     match protocol_upgrade {
-        ProtocolUpgrade::Ws(ws) => ws.on_upgrade(move |socket| handle_notarize(socket, params.context_format)),
+        ProtocolUpgrade::Ws(ws) => ws.on_upgrade(move |socket| {
+            handle_notarize(socket, params.context_format, state.signer)
+        }),
     }
 }
 
 async fn handle_notarize(
     socket: WebSocket,
     context_format: NotarizationContextFormat,
+    signer: Option<Arc<dyn ContextSigner>>,
 ) {
     let (inner, _protocol) = socket.into_inner();
     let ws_stream = WsStream::new(inner);
@@ -88,12 +103,19 @@ async fn handle_notarize(
 
     let context = HttpContext::builder(transcript).build().unwrap();
 
-    match context_format {
-        NotarizationContextFormat::Json => {
-            let context_json = serde_json::to_value(context).unwrap();
-            ws_stream.write_all(context_json.to_string().as_bytes()).await.unwrap();
+    if let Some(signer) = signer {
+        run_signing_exchange(ws_stream, context, signer.as_ref())
+            .await
+            .unwrap();
+    } else {
+        // Legacy mode: write raw JSON and close.
+        match context_format {
+            NotarizationContextFormat::Json => {
+                let context_json = serde_json::to_value(context).unwrap();
+                ws_stream.write_all(context_json.to_string().as_bytes()).await.unwrap();
+            }
+            _ => todo!(),
         }
-        _ => todo!(),
     }
 }
 

@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 cargo build                      # Build all crates
 cargo build -p simple-notary     # Build notary server only
 cargo build -p simple-notary-client  # Build client only
-cargo test                       # Run all tests (currently only doctests in axum-websocket)
+cargo test                       # Run all tests
 cargo test -p axum-websocket     # Run tests for a specific crate
 cargo run -p simple-notary       # Run notary server (default: 127.0.0.1:3000)
 cargo run -p simple-notary -- --host 0.0.0.0 --port 8080  # Custom host/port
@@ -50,3 +50,4 @@ See `.claude/docs/` for detailed internal documentation:
 - [session-io-reclamation.md](docs/session-io-reclamation.md) — How the Session API handles I/O ownership and reclamation
 - [notarization-flow.md](docs/notarization-flow.md) — End-to-end data flow through the notarization pipeline
 - [tlsn-releases.md](docs/tlsn-releases.md) — TLSNotary release notes (alpha.10–alpha.14) and upgrade migration guide
+- [notarization-strategies.md](docs/notarization-strategies.md) — Planned evolution: full-context signing → selective disclosure → pluggable transformation strategies
