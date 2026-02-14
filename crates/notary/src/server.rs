@@ -12,6 +12,7 @@ use serde::{Serialize, Deserialize};
 
 use crate::notarize::notarize;
 use http_transcript_context::http::HttpContext;
+use tlsn::{config::verifier::VerifierConfig, webpki::RootCertStore};
 use ws_stream_tungstenite::WsStream;
 
 use axum::{
@@ -26,21 +27,23 @@ use axum_websocket::{
 use crate::error::NotaryServerError;
 use futures::io::AsyncWriteExt;
 
+pub fn router() -> Router {
+    Router::new()
+        .route("/healthcheck", get(|| async move { (StatusCode::OK, "Ok").into_response() }))
+        .route("/notarize", any(notarize_handler))
+}
+
 pub async fn run(
     host: String,
     port: u16,
 ) -> Result<()> {
-    let router = Router::new()
-        .route("/healthcheck", get(|| async move { (StatusCode::OK, "Ok").into_response() }))
-        .route("/notarize", any(notarize_handler));
-
     let listener = tokio::net::TcpListener::bind(format!("{}:{}", host, port))
         .await
         .unwrap();
 
     axum::serve(
         listener,
-        router.into_make_service_with_connect_info::<SocketAddr>(),
+        router().into_make_service_with_connect_info::<SocketAddr>(),
     )
     .await
     .unwrap();
@@ -75,8 +78,13 @@ async fn handle_notarize(
     let (inner, _protocol) = socket.into_inner();
     let ws_stream = WsStream::new(inner);
 
+    let verifier_config = VerifierConfig::builder()
+        .root_store(RootCertStore::empty())
+        .build()
+        .unwrap();
+
     // Run the verifier protocol; the session reclaims the I/O when done.
-    let (transcript, mut ws_stream) = notarize(ws_stream).await.unwrap();
+    let (transcript, mut ws_stream) = notarize(ws_stream, verifier_config).await.unwrap();
 
     let context = HttpContext::builder(transcript).build().unwrap();
 

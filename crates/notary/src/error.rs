@@ -45,3 +45,36 @@ impl AxumCoreIntoResponse for NotaryServerError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bad_prover_request_returns_400() {
+        let error = NotaryServerError::BadProverRequest("bad".into());
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn unauthorized_prover_request_returns_401() {
+        let error = NotaryServerError::UnauthorizedProverRequest("unauth".into());
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn connection_error_returns_500() {
+        let error = NotaryServerError::Connection("conn failed".into());
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn credential_signing_key_error_returns_500() {
+        let error = NotaryServerError::CredentialSigningKeyError("key error".into());
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+}

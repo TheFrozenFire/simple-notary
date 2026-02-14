@@ -5,7 +5,6 @@ use tlsn::{
     Session,
     config::verifier::VerifierConfig,
     verifier::VerifierOutput,
-    webpki::RootCertStore,
 };
 
 use http_transcript_context::transcript::PartialTranscript;
@@ -16,14 +15,10 @@ use http_transcript_context::transcript::PartialTranscript;
 /// After completion, the underlying I/O is reclaimed from the session
 /// and returned alongside the transcript so the caller can continue
 /// using the connection (e.g. to send results back).
-pub async fn notarize<T>(io: T) -> Result<(PartialTranscript, T)>
+pub async fn notarize<T>(io: T, verifier_config: VerifierConfig) -> Result<(PartialTranscript, T)>
 where
     T: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 {
-    let verifier_config = VerifierConfig::builder()
-        .root_store(RootCertStore::empty())
-        .build()?;
-
     let session = Session::new(io);
     let (driver, mut handle) = session.split();
 
