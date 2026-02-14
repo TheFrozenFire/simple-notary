@@ -1,5 +1,5 @@
 use anyhow::Result;
-use k256::ecdsa::{SigningKey, signature::Signer};
+use k256::ecdsa::{SigningKey, signature::hazmat::PrehashSigner};
 use sha2::{Sha256, Digest};
 
 use super::signer::ContextSigner;
@@ -22,8 +22,11 @@ impl Secp256k1Signer {
 }
 
 impl ContextSigner for Secp256k1Signer {
-    fn sign(&self, data: &[u8]) -> Result<Vec<u8>> {
-        let signature: k256::ecdsa::Signature = self.signing_key.sign(data);
+    fn sign_digest(&self, digest: &[u8]) -> Result<Vec<u8>> {
+        let (signature, _): (k256::ecdsa::Signature, _) = self
+            .signing_key
+            .sign_prehash(digest)
+            .map_err(|e| anyhow::anyhow!("secp256k1 sign_prehash failed: {e}"))?;
         Ok(signature.to_bytes().to_vec())
     }
 
@@ -47,8 +50,9 @@ mod tests {
     #[test]
     fn deterministic_signing() {
         let signer = Secp256k1Signer::from_seed("test-seed").unwrap();
-        let sig1 = signer.sign(b"hello").unwrap();
-        let sig2 = signer.sign(b"hello").unwrap();
+        let digest = Sha256::digest(b"hello");
+        let sig1 = signer.sign_digest(&digest).unwrap();
+        let sig2 = signer.sign_digest(&digest).unwrap();
         assert_eq!(sig1, sig2);
     }
 
@@ -62,7 +66,8 @@ mod tests {
     #[test]
     fn signature_is_64_bytes() {
         let signer = Secp256k1Signer::from_seed("test-seed").unwrap();
-        let sig = signer.sign(b"data").unwrap();
+        let digest = Sha256::digest(b"data");
+        let sig = signer.sign_digest(&digest).unwrap();
         assert_eq!(sig.len(), 64);
     }
 

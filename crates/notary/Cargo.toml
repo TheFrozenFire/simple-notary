@@ -26,6 +26,8 @@ rsa = { version = "0.9", features = ["sha2"] }
 sha2 = "0.10"
 rand_chacha = "0.3"
 hex = "0.4"
+alloy-sol-types = "0.8"
+alloy-primitives = "0.8"
 
 async-tungstenite = { version = "0.28", features = ["tokio-native-tls"] }
 ws_stream_tungstenite = { version = "0.14", features = ["tokio_io"] }

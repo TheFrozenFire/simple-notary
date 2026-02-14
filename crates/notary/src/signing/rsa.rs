@@ -3,7 +3,8 @@ use rand_chacha::ChaCha20Rng;
 use rand_chacha::rand_core::SeedableRng;
 use rsa::pkcs1v15::SigningKey;
 use rsa::pkcs8::EncodePublicKey;
-use rsa::signature::{Signer, SignatureEncoding};
+use rsa::signature::SignatureEncoding;
+use rsa::signature::hazmat::PrehashSigner;
 use rsa::RsaPrivateKey;
 use sha2::{Sha256, Digest};
 
@@ -32,8 +33,10 @@ impl RsaSigner {
 }
 
 impl ContextSigner for RsaSigner {
-    fn sign(&self, data: &[u8]) -> Result<Vec<u8>> {
-        let signature = self.signing_key.sign(data);
+    fn sign_digest(&self, digest: &[u8]) -> Result<Vec<u8>> {
+        let signature = self.signing_key
+            .sign_prehash(digest)
+            .map_err(|e| anyhow::anyhow!("RSA sign_prehash failed: {e}"))?;
         Ok(signature.to_vec())
     }
 
@@ -54,7 +57,7 @@ impl ContextSigner for RsaSigner {
 mod tests {
     use super::*;
     use rsa::pkcs1v15::VerifyingKey;
-    use rsa::signature::Verifier;
+    use rsa::signature::hazmat::PrehashVerifier;
 
     fn test_signer() -> RsaSigner {
         RsaSigner::from_seed("test-seed").unwrap()
@@ -70,8 +73,9 @@ mod tests {
     #[test]
     fn deterministic_signing() {
         let signer = test_signer();
-        let sig1 = signer.sign(b"hello").unwrap();
-        let sig2 = signer.sign(b"hello").unwrap();
+        let digest = Sha256::digest(b"hello");
+        let sig1 = signer.sign_digest(&digest).unwrap();
+        let sig2 = signer.sign_digest(&digest).unwrap();
         assert_eq!(sig1, sig2);
     }
 
@@ -85,7 +89,8 @@ mod tests {
     #[test]
     fn signature_is_256_bytes() {
         let signer = test_signer();
-        let sig = signer.sign(b"data").unwrap();
+        let digest = Sha256::digest(b"data");
+        let sig = signer.sign_digest(&digest).unwrap();
         assert_eq!(sig.len(), RSA_KEY_BITS / 8);
     }
 
@@ -99,10 +104,11 @@ mod tests {
     fn signature_verifies() {
         let signer = test_signer();
         let data = b"verify me";
-        let sig_bytes = signer.sign(data).unwrap();
+        let digest = Sha256::digest(data);
+        let sig_bytes = signer.sign_digest(&digest).unwrap();
 
         let verifying_key = VerifyingKey::<Sha256>::new(signer.private_key.to_public_key());
         let signature = rsa::pkcs1v15::Signature::try_from(sig_bytes.as_slice()).unwrap();
-        verifying_key.verify(data, &signature).unwrap();
+        verifying_key.verify_prehash(&digest, &signature).unwrap();
     }
 }

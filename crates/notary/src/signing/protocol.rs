@@ -4,6 +4,10 @@ use serde::{Serialize, Deserialize, de::DeserializeOwned};
 
 const MAX_MESSAGE_SIZE: u32 = 10 * 1024 * 1024; // 10 MB
 
+fn default_json_format() -> String {
+    "json".to_string()
+}
+
 /// Notary → Prover messages.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -13,6 +17,8 @@ pub enum NotaryMessage {
     /// Signed attestation of the context.
     Signed {
         data: String,
+        #[serde(default = "default_json_format")]
+        format: String,
         signature: String,
         public_key: String,
         algorithm: String,
@@ -111,6 +117,7 @@ mod tests {
 
         let msg = NotaryMessage::Signed {
             data: "context".to_string(),
+            format: "json".to_string(),
             signature: "deadbeef".to_string(),
             public_key: "cafebabe".to_string(),
             algorithm: "secp256k1".to_string(),
@@ -122,11 +129,13 @@ mod tests {
         match received {
             NotaryMessage::Signed {
                 data,
+                format,
                 signature,
                 public_key,
                 algorithm,
             } => {
                 assert_eq!(data, "context");
+                assert_eq!(format, "json");
                 assert_eq!(signature, "deadbeef");
                 assert_eq!(public_key, "cafebabe");
                 assert_eq!(algorithm, "secp256k1");

@@ -1,10 +1,12 @@
+use std::sync::Arc;
+
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
-use simple_notary::{AppState, router};
+use simple_notary::{AppState, JsonEncoder, router};
 use tower::ServiceExt;
 
 fn test_state() -> AppState {
-    AppState { signer: None }
+    AppState { signer: None, encoder: Arc::new(JsonEncoder) }
 }
 
 #[tokio::test]

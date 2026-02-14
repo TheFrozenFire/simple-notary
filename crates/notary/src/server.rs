@@ -11,6 +11,7 @@ use axum::{
 };
 use serde::{Serialize, Deserialize};
 
+use crate::encoding::ContextEncoder;
 use crate::notarize::notarize;
 use crate::signing::{ContextSigner, run_signing_exchange};
 use http_transcript_context::http::HttpContext;
@@ -32,6 +33,7 @@ use futures::io::AsyncWriteExt;
 #[derive(Clone)]
 pub struct AppState {
     pub signer: Option<Arc<dyn ContextSigner>>,
+    pub encoder: Arc<dyn ContextEncoder>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -45,8 +47,9 @@ pub async fn run(
     host: String,
     port: u16,
     signer: Option<Arc<dyn ContextSigner>>,
+    encoder: Arc<dyn ContextEncoder>,
 ) -> Result<()> {
-    let state = AppState { signer };
+    let state = AppState { signer, encoder };
 
     let listener = tokio::net::TcpListener::bind(format!("{}:{}", host, port))
         .await
@@ -80,7 +83,7 @@ async fn notarize_handler(
 ) -> impl IntoResponse {
     match protocol_upgrade {
         ProtocolUpgrade::Ws(ws) => ws.on_upgrade(move |socket| {
-            handle_notarize(socket, params.context_format, state.signer)
+            handle_notarize(socket, params.context_format, state.signer, state.encoder)
         }),
     }
 }
@@ -89,6 +92,7 @@ async fn handle_notarize(
     socket: WebSocket,
     context_format: NotarizationContextFormat,
     signer: Option<Arc<dyn ContextSigner>>,
+    encoder: Arc<dyn ContextEncoder>,
 ) {
     let (inner, _protocol) = socket.into_inner();
     let ws_stream = WsStream::new(inner);
@@ -104,7 +108,7 @@ async fn handle_notarize(
     let context = HttpContext::builder(transcript).build().unwrap();
 
     if let Some(signer) = signer {
-        run_signing_exchange(ws_stream, context, signer.as_ref())
+        run_signing_exchange(ws_stream, context, signer.as_ref(), encoder.as_ref())
             .await
             .unwrap();
     } else {
