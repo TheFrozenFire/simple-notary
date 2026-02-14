@@ -8,6 +8,10 @@ default-run = "notary"
 name = "notary"
 path = "src/main.rs"
 
+[features]
+default = []
+embedding = ["fastembed"]
+
 [dependencies]
 axum-websocket = { workspace = true }
 
@@ -39,6 +43,8 @@ eyre = { version = "0.6" }
 thiserror = { version = "1.0" }
 
 futures = { version = "0.3" }
+
+fastembed = { version = "4", optional = true }
 
 [dev-dependencies]
 rangeset = { version = "0.4", features = ["serde"] }

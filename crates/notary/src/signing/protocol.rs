@@ -2,6 +2,8 @@ use anyhow::{Context, Result, bail};
 use futures::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
 
+use crate::encoding::Quantization;
+
 const MAX_MESSAGE_SIZE: u32 = 10 * 1024 * 1024; // 10 MB
 
 fn default_json_format() -> String {
@@ -13,7 +15,12 @@ fn default_json_format() -> String {
 #[serde(tag = "type")]
 pub enum NotaryMessage {
     /// The HTTP context for the prover to review before requesting signing.
-    Context { data: String },
+    Context {
+        data: String,
+        /// Embedding models the server supports (present only for embedding encoder).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        available_models: Option<Vec<String>>,
+    },
     /// Signed attestation of the context.
     Signed {
         data: String,
@@ -30,9 +37,24 @@ pub enum NotaryMessage {
 #[serde(tag = "type")]
 pub enum ProverMessage {
     /// Request the notary to sign the full context.
-    SignRequest,
+    SignRequest {
+        /// Embedding model to use (only for embedding encoder).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        embedding_model: Option<String>,
+        /// Quantization format (only for embedding encoder).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        quantization: Option<Quantization>,
+    },
     /// Request the notary to sign a filtered subset of the context.
-    SignFiltered { data: String },
+    SignFiltered {
+        data: String,
+        /// Embedding model to use (only for embedding encoder).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        embedding_model: Option<String>,
+        /// Quantization format (only for embedding encoder).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        quantization: Option<Quantization>,
+    },
 }
 
 /// Write a length-prefixed JSON message.
@@ -82,14 +104,16 @@ mod tests {
 
         let msg = NotaryMessage::Context {
             data: r#"{"request":{},"response":{}}"#.to_string(),
+            available_models: None,
         };
         write_message(&mut client_w, &msg).await.unwrap();
         drop(client_w);
 
         let received: NotaryMessage = read_message(&mut server_r).await.unwrap();
         match received {
-            NotaryMessage::Context { data } => {
+            NotaryMessage::Context { data, available_models } => {
                 assert_eq!(data, r#"{"request":{},"response":{}}"#);
+                assert!(available_models.is_none());
             }
             _ => panic!("expected Context message"),
         }
@@ -101,12 +125,29 @@ mod tests {
         let (mut client_r, _client_w) = client.compat().split();
         let (_server_r, mut server_w) = server.compat().split();
 
-        let msg = ProverMessage::SignRequest;
+        let msg = ProverMessage::SignRequest {
+            embedding_model: None,
+            quantization: None,
+        };
         write_message(&mut server_w, &msg).await.unwrap();
         drop(server_w);
 
         let received: ProverMessage = read_message(&mut client_r).await.unwrap();
-        assert!(matches!(received, ProverMessage::SignRequest));
+        assert!(matches!(received, ProverMessage::SignRequest { .. }));
+    }
+
+    #[tokio::test]
+    async fn sign_request_backward_compat() {
+        // `{"type":"SignRequest"}` (no extra fields) should deserialize correctly
+        let json = r#"{"type":"SignRequest"}"#;
+        let msg: ProverMessage = serde_json::from_str(json).unwrap();
+        match msg {
+            ProverMessage::SignRequest { embedding_model, quantization } => {
+                assert!(embedding_model.is_none());
+                assert!(quantization.is_none());
+            }
+            _ => panic!("expected SignRequest"),
+        }
     }
 
     #[tokio::test]

@@ -3,7 +3,7 @@ use alloy_primitives::{Address, U256};
 use alloy_sol_types::{Eip712Domain, SolStruct, SolValue};
 
 use super::abi::parse_attestation;
-use super::{ContextEncoder, EncodedContext};
+use super::{ContextEncoder, EncodeOptions, EncodedContext};
 
 /// Encodes context as ABI-encoded structs with EIP-712 typed data digest.
 ///
@@ -32,7 +32,7 @@ impl Eip712Encoder {
 }
 
 impl ContextEncoder for Eip712Encoder {
-    fn encode(&self, context: &serde_json::Value) -> Result<EncodedContext> {
+    fn encode(&self, context: &serde_json::Value, _options: &EncodeOptions) -> Result<EncodedContext> {
         let attestation = parse_attestation(context)?;
         let data = attestation.abi_encode();
         let digest = attestation
@@ -70,7 +70,7 @@ mod tests {
             "responses": [{"status": 200, "headers": [], "body": null}]
         });
 
-        let encoded = encoder.encode(&context).unwrap();
+        let encoded = encoder.encode(&context, &Default::default()).unwrap();
         assert_eq!(encoded.digest.len(), 32, "EIP-712 digest should be 32 bytes");
         assert!(!encoded.data.is_empty());
 
@@ -91,8 +91,8 @@ mod tests {
             "responses": [{"status": 200, "headers": [], "body": null}]
         });
 
-        let abi_encoded = abi_encoder.encode(&context).unwrap();
-        let eip712_encoded = eip712_encoder.encode(&context).unwrap();
+        let abi_encoded = abi_encoder.encode(&context, &Default::default()).unwrap();
+        let eip712_encoded = eip712_encoder.encode(&context, &Default::default()).unwrap();
 
         // Same data bytes (both ABI-encode the same struct)
         assert_eq!(abi_encoded.data, eip712_encoded.data);
@@ -107,8 +107,8 @@ mod tests {
             "requests": [],
             "responses": []
         });
-        let enc1 = encoder.encode(&context).unwrap();
-        let enc2 = encoder.encode(&context).unwrap();
+        let enc1 = encoder.encode(&context, &Default::default()).unwrap();
+        let enc2 = encoder.encode(&context, &Default::default()).unwrap();
         assert_eq!(enc1.digest, enc2.digest);
     }
 
@@ -121,8 +121,8 @@ mod tests {
             "responses": []
         });
 
-        let enc_a = encoder_a.encode(&context).unwrap();
-        let enc_b = encoder_b.encode(&context).unwrap();
+        let enc_a = encoder_a.encode(&context, &Default::default()).unwrap();
+        let enc_b = encoder_b.encode(&context, &Default::default()).unwrap();
         assert_ne!(enc_a.digest, enc_b.digest);
     }
 

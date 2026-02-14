@@ -7,6 +7,8 @@ use simple_notary::{
     JsonEncoder, AbiEncoder, Eip712Encoder,
     run,
 };
+#[cfg(feature = "embedding")]
+use simple_notary::EmbeddingEncoder;
 
 #[derive(Debug, Clone, ValueEnum)]
 enum SigningAlgorithm {
@@ -20,6 +22,8 @@ enum ContextEncoding {
     Json,
     Abi,
     Eip712,
+    #[cfg(feature = "embedding")]
+    Embedding,
 }
 
 #[derive(Parser)]
@@ -44,6 +48,16 @@ struct Args {
     eip712_chain_id: u64,
     #[clap(long, env = "EIP712_VERIFYING_CONTRACT", default_value = "0x0000000000000000000000000000000000000000")]
     eip712_verifying_contract: String,
+
+    // Embedding parameters (only required when encoding=embedding)
+    /// Comma-separated list of allowed embedding models.
+    #[cfg(feature = "embedding")]
+    #[clap(long, env = "EMBEDDING_MODELS", default_value = "all-MiniLM-L6-v2", value_delimiter = ',')]
+    embedding_models: Vec<String>,
+    /// Cache directory for ONNX model files (defaults to fastembed's default).
+    #[cfg(feature = "embedding")]
+    #[clap(long, env = "EMBEDDING_CACHE_DIR")]
+    embedding_cache_dir: Option<std::path::PathBuf>,
 }
 
 #[tokio::main]
@@ -77,6 +91,13 @@ async fn main() {
                 args.eip712_version,
                 args.eip712_chain_id,
                 contract_bytes,
+            ))
+        }
+        #[cfg(feature = "embedding")]
+        ContextEncoding::Embedding => {
+            Arc::new(EmbeddingEncoder::new(
+                args.embedding_models,
+                args.embedding_cache_dir,
             ))
         }
     };

@@ -3,7 +3,7 @@ use alloy_primitives::keccak256;
 use alloy_sol_types::{SolValue, sol};
 use serde_json::Value;
 
-use super::{ContextEncoder, EncodedContext};
+use super::{ContextEncoder, EncodeOptions, EncodedContext};
 
 sol! {
     struct Header {
@@ -45,7 +45,7 @@ const BODY_JSON_KV: u8 = 2;
 pub struct AbiEncoder;
 
 impl ContextEncoder for AbiEncoder {
-    fn encode(&self, context: &Value) -> Result<EncodedContext> {
+    fn encode(&self, context: &Value, _options: &EncodeOptions) -> Result<EncodedContext> {
         let attestation = parse_attestation(context)?;
         let data = attestation.abi_encode();
         let digest = keccak256(&data).to_vec();
@@ -244,7 +244,7 @@ mod tests {
             }]
         });
 
-        let encoded = encoder.encode(&context).unwrap();
+        let encoded = encoder.encode(&context, &Default::default()).unwrap();
         assert!(!encoded.data.is_empty());
         assert_eq!(encoded.digest.len(), 32, "keccak256 digest should be 32 bytes");
 
@@ -276,7 +276,7 @@ mod tests {
             }]
         });
 
-        let encoded = encoder.encode(&context).unwrap();
+        let encoded = encoder.encode(&context, &Default::default()).unwrap();
         let decoded = <Attestation as SolValue>::abi_decode(&encoded.data, true).unwrap();
 
         // Null-replaced request
@@ -309,7 +309,7 @@ mod tests {
             "responses": []
         });
 
-        let encoded = encoder.encode(&context).unwrap();
+        let encoded = encoder.encode(&context, &Default::default()).unwrap();
         let decoded = <Attestation as SolValue>::abi_decode(&encoded.data, true).unwrap();
 
         assert_eq!(decoded.requests[0].bodyEncoding, BODY_JSON_KV);
@@ -339,7 +339,7 @@ mod tests {
             }]
         });
 
-        let encoded = encoder.encode(&context).unwrap();
+        let encoded = encoder.encode(&context, &Default::default()).unwrap();
         let decoded = <Attestation as SolValue>::abi_decode(&encoded.data, true).unwrap();
 
         // JSON array body falls back to raw
@@ -355,8 +355,8 @@ mod tests {
             "requests": [{"target": "/", "method": "GET", "headers": [], "body": null}],
             "responses": [{"status": 200, "headers": [], "body": null}]
         });
-        let enc1 = encoder.encode(&context).unwrap();
-        let enc2 = encoder.encode(&context).unwrap();
+        let enc1 = encoder.encode(&context, &Default::default()).unwrap();
+        let enc2 = encoder.encode(&context, &Default::default()).unwrap();
         assert_eq!(enc1.data, enc2.data);
         assert_eq!(enc1.digest, enc2.digest);
     }
@@ -368,7 +368,7 @@ mod tests {
             "requests": [],
             "responses": []
         });
-        let encoded = encoder.encode(&context).unwrap();
+        let encoded = encoder.encode(&context, &Default::default()).unwrap();
         let expected = keccak256(&encoded.data).to_vec();
         assert_eq!(encoded.digest, expected);
     }
@@ -385,7 +385,7 @@ mod tests {
             "requests": [{"target": "/", "method": "GET"}],
             "responses": []
         });
-        let encoded = encoder.encode(&context).unwrap();
+        let encoded = encoder.encode(&context, &Default::default()).unwrap();
         let decoded = <Attestation as SolValue>::abi_decode(&encoded.data, true).unwrap();
         assert!(decoded.requests[0].headers.is_empty());
     }

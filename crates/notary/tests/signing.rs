@@ -7,6 +7,8 @@ use simple_notary::signing::{
     read_message, run_signing_exchange, write_message, is_json_subset,
 };
 use simple_notary::encoding::{JsonEncoder, AbiEncoder, Eip712Encoder};
+#[cfg(feature = "embedding")]
+use simple_notary::encoding::{EmbeddingEncoder, Quantization};
 use http_transcript_context::http::HttpContext;
 use http_transcript_context::transcript::PartialTranscript;
 
@@ -38,13 +40,13 @@ async fn full_signing_exchange() {
     // 1. Read Context message
     let msg: NotaryMessage = read_message(&mut prover_io).await.unwrap();
     let context_data = match msg {
-        NotaryMessage::Context { data } => data,
+        NotaryMessage::Context { data, .. } => data,
         other => panic!("expected Context, got {:?}", other),
     };
     assert!(!context_data.is_empty());
 
     // 2. Send SignRequest
-    write_message(&mut prover_io, &ProverMessage::SignRequest)
+    write_message(&mut prover_io, &ProverMessage::SignRequest { embedding_model: None, quantization: None })
         .await
         .unwrap();
 
@@ -94,7 +96,7 @@ async fn signed_data_matches_canonical_serialization() {
     let mut prover_io = prover_io.compat();
 
     let _: NotaryMessage = read_message(&mut prover_io).await.unwrap();
-    write_message(&mut prover_io, &ProverMessage::SignRequest)
+    write_message(&mut prover_io, &ProverMessage::SignRequest { embedding_model: None, quantization: None })
         .await
         .unwrap();
 
@@ -129,7 +131,7 @@ async fn selective_disclosure_filtered_signing() {
     // 1. Read Context message
     let msg: NotaryMessage = read_message(&mut prover_io).await.unwrap();
     let context_data = match msg {
-        NotaryMessage::Context { data } => data,
+        NotaryMessage::Context { data, .. } => data,
         other => panic!("expected Context, got {:?}", other),
     };
 
@@ -159,6 +161,8 @@ async fn selective_disclosure_filtered_signing() {
         &mut prover_io,
         &ProverMessage::SignFiltered {
             data: filtered_json.clone(),
+            embedding_model: None,
+            quantization: None,
         },
     )
     .await
@@ -199,7 +203,7 @@ async fn selective_disclosure_rejects_modified_scalar() {
 
     let msg: NotaryMessage = read_message(&mut prover_io).await.unwrap();
     let context_data = match msg {
-        NotaryMessage::Context { data } => data,
+        NotaryMessage::Context { data, .. } => data,
         other => panic!("expected Context, got {:?}", other),
     };
 
@@ -214,6 +218,8 @@ async fn selective_disclosure_rejects_modified_scalar() {
         &mut prover_io,
         &ProverMessage::SignFiltered {
             data: tampered_json,
+            embedding_model: None,
+            quantization: None,
         },
     )
     .await
@@ -241,7 +247,7 @@ async fn abi_signing_exchange() {
     // 1. Context is always JSON (for prover review)
     let msg: NotaryMessage = read_message(&mut prover_io).await.unwrap();
     let _context_data = match msg {
-        NotaryMessage::Context { data } => {
+        NotaryMessage::Context { data, .. } => {
             // Verify it's valid JSON
             let _: serde_json::Value = serde_json::from_str(&data).unwrap();
             data
@@ -250,7 +256,7 @@ async fn abi_signing_exchange() {
     };
 
     // 2. Request signing
-    write_message(&mut prover_io, &ProverMessage::SignRequest)
+    write_message(&mut prover_io, &ProverMessage::SignRequest { embedding_model: None, quantization: None })
         .await
         .unwrap();
 
@@ -296,7 +302,7 @@ async fn abi_selective_disclosure() {
 
     let msg: NotaryMessage = read_message(&mut prover_io).await.unwrap();
     let context_data = match msg {
-        NotaryMessage::Context { data } => data,
+        NotaryMessage::Context { data, .. } => data,
         other => panic!("expected Context, got {:?}", other),
     };
 
@@ -311,7 +317,7 @@ async fn abi_selective_disclosure() {
     let filtered_json = serde_json::to_string(&context_value).unwrap();
     write_message(
         &mut prover_io,
-        &ProverMessage::SignFiltered { data: filtered_json },
+        &ProverMessage::SignFiltered { data: filtered_json, embedding_model: None, quantization: None },
     )
     .await
     .unwrap();
@@ -356,7 +362,7 @@ async fn eip712_signing_exchange() {
         other => panic!("expected Context, got {:?}", other),
     }
 
-    write_message(&mut prover_io, &ProverMessage::SignRequest)
+    write_message(&mut prover_io, &ProverMessage::SignRequest { embedding_model: None, quantization: None })
         .await
         .unwrap();
 
@@ -402,7 +408,7 @@ async fn ethereum_signer_produces_recoverable_signature() {
     let mut prover_io = prover_io.compat();
 
     let _: NotaryMessage = read_message(&mut prover_io).await.unwrap();
-    write_message(&mut prover_io, &ProverMessage::SignRequest)
+    write_message(&mut prover_io, &ProverMessage::SignRequest { embedding_model: None, quantization: None })
         .await
         .unwrap();
 
@@ -453,7 +459,7 @@ async fn ethereum_signer_with_eip712() {
     let mut prover_io = prover_io.compat();
 
     let _: NotaryMessage = read_message(&mut prover_io).await.unwrap();
-    write_message(&mut prover_io, &ProverMessage::SignRequest)
+    write_message(&mut prover_io, &ProverMessage::SignRequest { embedding_model: None, quantization: None })
         .await
         .unwrap();
 
@@ -470,6 +476,208 @@ async fn ethereum_signer_with_eip712() {
 
             let sig_bytes = hex::decode(&signature).unwrap();
             assert_eq!(sig_bytes.len(), 65, "ethereum sig should be 65 bytes");
+        }
+        other => panic!("expected Signed, got {:?}", other),
+    }
+
+    notary_task.await.unwrap();
+}
+
+// ── Embedding encoder tests ──────────────────────────────────────────
+
+#[cfg(feature = "embedding")]
+#[tokio::test]
+async fn embedding_signing_exchange_float32() {
+    let (prover_io, notary_io) = duplex(65536);
+    let signer = Secp256k1Signer::from_seed("embedding-test").unwrap();
+    let encoder = EmbeddingEncoder::new(vec!["all-MiniLM-L6-v2".to_string()], None);
+
+    let notary_task = tokio::spawn(async move {
+        run_signing_exchange(notary_io.compat(), test_context(), &signer, &encoder)
+            .await
+            .unwrap();
+    });
+
+    let mut prover_io = prover_io.compat();
+
+    // 1. Context should include available_models
+    let msg: NotaryMessage = read_message(&mut prover_io).await.unwrap();
+    match msg {
+        NotaryMessage::Context { data, available_models } => {
+            let _: serde_json::Value = serde_json::from_str(&data).unwrap();
+            let models = available_models.expect("embedding encoder should advertise models");
+            assert!(models.contains(&"all-MiniLM-L6-v2".to_string()));
+        }
+        other => panic!("expected Context, got {:?}", other),
+    }
+
+    // 2. Request signing with embedding model
+    write_message(
+        &mut prover_io,
+        &ProverMessage::SignRequest {
+            embedding_model: Some("all-MiniLM-L6-v2".to_string()),
+            quantization: Some(Quantization::Float32),
+        },
+    )
+    .await
+    .unwrap();
+
+    // 3. Verify Signed response
+    let msg: NotaryMessage = read_message(&mut prover_io).await.unwrap();
+    match msg {
+        NotaryMessage::Signed {
+            data,
+            format,
+            signature,
+            algorithm,
+            ..
+        } => {
+            assert_eq!(format, "embedding");
+            assert_eq!(algorithm, "secp256k1");
+
+            let abi_bytes = hex::decode(&data).unwrap();
+            assert!(!abi_bytes.is_empty());
+
+            let sig_bytes = hex::decode(&signature).unwrap();
+            assert_eq!(sig_bytes.len(), 64);
+        }
+        other => panic!("expected Signed, got {:?}", other),
+    }
+
+    notary_task.await.unwrap();
+}
+
+#[cfg(feature = "embedding")]
+#[tokio::test]
+async fn embedding_selective_disclosure() {
+    let (prover_io, notary_io) = duplex(65536);
+    let signer = Secp256k1Signer::from_seed("embedding-filtered").unwrap();
+    let encoder = EmbeddingEncoder::new(vec!["all-MiniLM-L6-v2".to_string()], None);
+
+    let notary_task = tokio::spawn(async move {
+        run_signing_exchange(notary_io.compat(), test_context(), &signer, &encoder)
+            .await
+            .unwrap();
+    });
+
+    let mut prover_io = prover_io.compat();
+
+    let msg: NotaryMessage = read_message(&mut prover_io).await.unwrap();
+    let context_data = match msg {
+        NotaryMessage::Context { data, .. } => data,
+        other => panic!("expected Context, got {:?}", other),
+    };
+
+    // Filter: null-out the first response
+    let mut context_value: serde_json::Value = serde_json::from_str(&context_data).unwrap();
+    if let Some(responses) = context_value.get_mut("responses").and_then(|v| v.as_array_mut()) {
+        if !responses.is_empty() {
+            responses[0] = serde_json::Value::Null;
+        }
+    }
+
+    let filtered_json = serde_json::to_string(&context_value).unwrap();
+    write_message(
+        &mut prover_io,
+        &ProverMessage::SignFiltered {
+            data: filtered_json,
+            embedding_model: Some("all-MiniLM-L6-v2".to_string()),
+            quantization: Some(Quantization::Float32),
+        },
+    )
+    .await
+    .unwrap();
+
+    let msg: NotaryMessage = read_message(&mut prover_io).await.unwrap();
+    match msg {
+        NotaryMessage::Signed { format, data, .. } => {
+            assert_eq!(format, "embedding");
+            let abi_bytes = hex::decode(&data).unwrap();
+            assert!(!abi_bytes.is_empty());
+        }
+        other => panic!("expected Signed, got {:?}", other),
+    }
+
+    notary_task.await.unwrap();
+}
+
+#[cfg(feature = "embedding")]
+#[tokio::test]
+async fn embedding_rejects_invalid_model() {
+    let (prover_io, notary_io) = duplex(65536);
+    let signer = Secp256k1Signer::from_seed("embedding-reject").unwrap();
+    let encoder = EmbeddingEncoder::new(vec!["all-MiniLM-L6-v2".to_string()], None);
+
+    let notary_task = tokio::spawn(async move {
+        let result = run_signing_exchange(notary_io.compat(), test_context(), &signer, &encoder).await;
+        assert!(result.is_err(), "should reject model not in whitelist");
+    });
+
+    let mut prover_io = prover_io.compat();
+
+    let _: NotaryMessage = read_message(&mut prover_io).await.unwrap();
+
+    write_message(
+        &mut prover_io,
+        &ProverMessage::SignRequest {
+            embedding_model: Some("not-a-real-model".to_string()),
+            quantization: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    notary_task.await.unwrap();
+}
+
+#[cfg(feature = "embedding")]
+#[tokio::test]
+async fn embedding_int8_quantization() {
+    let (prover_io, notary_io) = duplex(65536);
+    let signer = Secp256k1Signer::from_seed("embedding-int8").unwrap();
+    let encoder = EmbeddingEncoder::new(vec!["all-MiniLM-L6-v2".to_string()], None);
+
+    let notary_task = tokio::spawn(async move {
+        run_signing_exchange(notary_io.compat(), test_context(), &signer, &encoder)
+            .await
+            .unwrap();
+    });
+
+    let mut prover_io = prover_io.compat();
+
+    let _: NotaryMessage = read_message(&mut prover_io).await.unwrap();
+
+    write_message(
+        &mut prover_io,
+        &ProverMessage::SignRequest {
+            embedding_model: Some("all-MiniLM-L6-v2".to_string()),
+            quantization: Some(Quantization::Int8),
+        },
+    )
+    .await
+    .unwrap();
+
+    let msg: NotaryMessage = read_message(&mut prover_io).await.unwrap();
+    match msg {
+        NotaryMessage::Signed { data, format, .. } => {
+            assert_eq!(format, "embedding");
+
+            let abi_bytes = hex::decode(&data).unwrap();
+            use alloy_sol_types::SolValue;
+            alloy_sol_types::sol! {
+                struct EmbeddingAttestation {
+                    string model;
+                    uint16 dimensions;
+                    uint8 quantization;
+                    bytes embedding;
+                    uint256 scaleWad;
+                }
+            }
+            let decoded = <EmbeddingAttestation as SolValue>::abi_decode(&abi_bytes, true).unwrap();
+            assert_eq!(decoded.dimensions, 384);
+            assert_eq!(decoded.quantization, 1, "should be int8 (1)");
+            assert_eq!(decoded.embedding.len(), 384, "int8: one byte per dimension");
+            assert!(decoded.scaleWad > alloy_primitives::U256::ZERO);
         }
         other => panic!("expected Signed, got {:?}", other),
     }

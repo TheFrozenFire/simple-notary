@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use sha2::{Sha256, Digest};
 
-use super::{ContextEncoder, EncodedContext};
+use super::{ContextEncoder, EncodeOptions, EncodedContext};
 
 /// Encodes context as canonical JSON with SHA-256 digest.
 ///
@@ -10,7 +10,7 @@ use super::{ContextEncoder, EncodedContext};
 pub struct JsonEncoder;
 
 impl ContextEncoder for JsonEncoder {
-    fn encode(&self, context: &serde_json::Value) -> Result<EncodedContext> {
+    fn encode(&self, context: &serde_json::Value, _options: &EncodeOptions) -> Result<EncodedContext> {
         let json_bytes = serde_json::to_string(context)
             .context("serializing context to canonical JSON")?
             .into_bytes();
@@ -35,7 +35,7 @@ mod tests {
     fn roundtrip_encode() {
         let encoder = JsonEncoder;
         let context = json!({"request": {"method": "GET"}, "response": {"status": 200}});
-        let encoded = encoder.encode(&context).unwrap();
+        let encoded = encoder.encode(&context, &Default::default()).unwrap();
 
         let decoded: serde_json::Value = serde_json::from_slice(&encoded.data).unwrap();
         assert_eq!(decoded, context);
@@ -45,7 +45,7 @@ mod tests {
     fn digest_matches_sha256() {
         let encoder = JsonEncoder;
         let context = json!({"key": "value"});
-        let encoded = encoder.encode(&context).unwrap();
+        let encoded = encoder.encode(&context, &Default::default()).unwrap();
 
         let expected_digest = Sha256::digest(&encoded.data).to_vec();
         assert_eq!(encoded.digest, expected_digest);
@@ -55,8 +55,8 @@ mod tests {
     fn deterministic_encoding() {
         let encoder = JsonEncoder;
         let context = json!({"b": 2, "a": 1});
-        let enc1 = encoder.encode(&context).unwrap();
-        let enc2 = encoder.encode(&context).unwrap();
+        let enc1 = encoder.encode(&context, &Default::default()).unwrap();
+        let enc2 = encoder.encode(&context, &Default::default()).unwrap();
         assert_eq!(enc1.data, enc2.data);
         assert_eq!(enc1.digest, enc2.digest);
     }

@@ -2,7 +2,7 @@ use anyhow::{Context, Result, bail};
 use futures::io::{AsyncRead, AsyncWrite};
 use http_transcript_context::http::HttpContext;
 
-use crate::encoding::ContextEncoder;
+use crate::encoding::{ContextEncoder, EncodeOptions};
 use super::protocol::{NotaryMessage, ProverMessage, read_message, write_message};
 use super::signer::ContextSigner;
 use super::subset::is_json_subset;
@@ -24,8 +24,14 @@ where
     let canonical_json =
         serde_json::to_string(&context).context("serializing context to canonical JSON")?;
 
+    let available_models = {
+        let models = encoder.available_models();
+        if models.is_empty() { None } else { Some(models) }
+    };
+
     write_message(&mut io, &NotaryMessage::Context {
         data: canonical_json.clone(),
+        available_models,
     })
     .await
     .context("sending Context message")?;
@@ -34,12 +40,14 @@ where
         .await
         .context("reading prover message")?;
 
-    let value_to_encode: serde_json::Value = match prover_msg {
-        ProverMessage::SignRequest => {
-            serde_json::from_str(&canonical_json)
-                .context("parsing canonical JSON as Value")?
+    let (value_to_encode, encode_options) = match prover_msg {
+        ProverMessage::SignRequest { embedding_model, quantization } => {
+            let value = serde_json::from_str(&canonical_json)
+                .context("parsing canonical JSON as Value")?;
+            let options = EncodeOptions { embedding_model, quantization };
+            (value, options)
         }
-        ProverMessage::SignFiltered { data } => {
+        ProverMessage::SignFiltered { data, embedding_model, quantization } => {
             let original: serde_json::Value = serde_json::from_str(&canonical_json)
                 .context("parsing original context as JSON Value")?;
             let filtered: serde_json::Value = serde_json::from_str(&data)
@@ -49,12 +57,13 @@ where
                 bail!("filtered context is not a valid subset of the original context");
             }
 
-            filtered
+            let options = EncodeOptions { embedding_model, quantization };
+            (filtered, options)
         }
     };
 
     let encoded = encoder
-        .encode(&value_to_encode)
+        .encode(&value_to_encode, &encode_options)
         .context("encoding context")?;
 
     let signature_bytes = signer
