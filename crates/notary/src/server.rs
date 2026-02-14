@@ -31,12 +31,15 @@ use crate::yoinker::IoYoinker;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tokio::io::AsyncWriteExt;
 
-pub async fn run() -> Result<()> {
+pub async fn run(
+    host: String,
+    port: u16,
+) -> Result<()> {
     let router = Router::new()
         .route("/healthcheck", get(|| async move { (StatusCode::OK, "Ok").into_response() }))
         .route("/notarize", any(notarize_handler));
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+    let listener = tokio::net::TcpListener::bind(format!("{}:{}", host, port))
         .await
         .unwrap();
     

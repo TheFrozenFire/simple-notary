@@ -3007,6 +3007,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "simple-notary-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-tungstenite",
+ "axum",
+ "axum-core",
+ "axum-websocket",
+ "clap",
+ "eyre",
+ "futures",
+ "http-transcript-context",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tlsn",
+ "tokio",
+ "tokio-util",
+ "ws_stream_tungstenite",
+]
+
+[[package]]
 name = "slab"
 version = "0.4.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"

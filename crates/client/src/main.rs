@@ -1,5 +1,5 @@
 use clap::Parser;
-use simple_notary::run;
+use simple_notary_client::run;
 
 #[derive(Parser)]
 struct Args {

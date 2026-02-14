@@ -1,11 +1,11 @@
 [package]
-name = "simple-notary"
+name = "simple-notary-client"
 version = "0.1.0"
 edition = "2024"
-default-run = "notary"
+default-run = "simple-notary-client"
 
 [[bin]]
-name = "notary"
+name = "simple-notary-client"
 path = "src/main.rs"
 
 [dependencies]
